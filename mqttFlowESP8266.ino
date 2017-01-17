@@ -1,10 +1,12 @@
-//connect a jumper from GPIO 14 to ground to start test
-#include <pins_arduino.h> // be sure to select "NodeMCU Board!" see https://github.com/esp8266/Arduino/tree/master/variants/nodemcu
-// https://raw.githubusercontent.com/esp8266/Arduino/master/variants/nodemcu/pins_arduino.h
+ 
 #include <ESP8266WiFi.h>
-#include <Adafruit_MQTT.h> // install zip library in Arduino from https://github.com/adafruit/Adafruit_MQTT_Library then refresh in Visual Micro  (probably best to restart Visual Studio)
-#include "Adafruit_MQTT.h"
-#include "Adafruit_MQTT_Client.h"
+
+#include <Adafruit_MQTT.h>
+#include <Adafruit_MQTT_Client.h>
+#include <pins_arduino.h> // be sure to select "NodeMCU Board!" see https://github.com/esp8266/Arduino/tree/master/variants/nodemcu
+
+// https://raw.githubusercontent.com/esp8266/Arduino/master/variants/nodemcu/pins_arduino.h
+
 
 // My config is stored in myPrivateSettings.h file 
 // if you choose not to use such a file, set this to false:
@@ -28,9 +30,15 @@ const char* fingerprint = "your adafruit fingerprint string";
 #endif
 
 
-WiFiClientSecure client;
 
+//connect a jumper from GPIO 14 to ground to start test
+
+#include "MQTT_lib.h"
+
+WiFiClientSecure client;
 Adafruit_MQTT_Client mqtt(&client, AIO_SERVER, AIO_SERVERPORT, AIO_USERNAME, AIO_KEY);
+
+
 
 // https://io.adafruit.com/gojimmypie/mydashboard#
 // https://learn.adafruit.com/adafruit-huzzah-esp8266-breakout/using-nodemcu-lua
@@ -50,96 +58,6 @@ Adafruit_MQTT_Client mqtt(&client, AIO_SERVER, AIO_SERVERPORT, AIO_USERNAME, AIO
 // Should be called in the loop function and it will take care if connecting.
 unsigned long millisBetween(unsigned long millisStart, unsigned long millisEnd);
 
-void MQTT_connect() {
-
-	int8_t ret;
-
-	// Stop if already connected.
-	if (mqtt.connected()) {
-		Serial.println("MQTT is connected!");
-		return;
-	}
-
-	Serial.print("Connecting to MQTT... ");
-
-	uint8_t retries = 3;
-	while ((ret = mqtt.connect()) != 0) { // connect will return 0 for connected
-		Serial.println(mqtt.connectErrorString(ret));
-		Serial.println("Retrying MQTT connection in 5 seconds...");
-		mqtt.disconnect();
-		delay(5000);  // wait 5 seconds
-		retries--;
-		if (retries == 0) {
-			// basically die and wait for WDT to reset me
-			while (1);
-		}
-	}
-
-	Serial.println("MQTT Connected!");
-}
-
-
-void verifyFingerprint() {
-
-	const char* host = AIO_SERVER;
-
-	Serial.print("Connecting to ");
-	Serial.println(host);
-
-	if (!client.connect(host, AIO_SERVERPORT)) {
-		Serial.println("Connection failed. Halting execution.");
-		while (1);
-	}
-
-	if (client.verify(fingerprint, host)) {
-		Serial.println("Connection secure.");
-	}
-	else {
-		Serial.println("Connection insecure! Halting execution.");
-		while (1);
-	}
-
-}
-
-
-/****************************** Feeds ***************************************/
-// Notice MQTT paths for AIO follow the form: <username>/feeds/<feedname>
-//Adafruit_MQTT_Publish flowD1 = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/flowD1");
-//Adafruit_MQTT_Publish flowD5 = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/flowD5");
-//Adafruit_MQTT_Publish flowD5_History = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/flowD5_History");
-
-
-//********************************************************************************************************************
-// publishString
-//
-// be sure feed exists! see https://learn.adafruit.com/adafruit-io-basics-feeds/creating-a-feed
-//
-//********************************************************************************************************************
-void publishString(char thisValue[], char feedname[] = "history") {
-	char publishName[128] = AIO_USERNAME; // "/feeds/history";
-
-	strcat(publishName, "/feeds/");
-
-	strncat(publishName, feedname, (unsigned)strlen(feedname));
-
-	// example: Adafruit_MQTT_Publish flowD1 = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/flowD1");
-
-	Serial.print("Publishing ");
-	Serial.print(thisValue);
-	Serial.print(" to ");
-	Serial.print(publishName);
-	Serial.print("; ");
-
-	Adafruit_MQTT_Publish thisPublisher = Adafruit_MQTT_Publish(&mqtt, publishName);
-	MQTT_connect();
-
-	if (!thisPublisher.publish(thisValue)) {
-		Serial.println(F(" Failed"));
-	}
-	else {
-		Serial.println(F(" Success!"));
-	}
-}
 
 #define VerboseSerial true
 #define GPIO_PIN 14 
@@ -453,7 +371,7 @@ void doDeviceCalc(uint8_t thisDevice) {
 				char thisStr[80] = "";
 				itoa(countLastFlow[thisDevice], thisStr, 10);
 				strncat(msg, thisStr, (unsigned)strlen(thisStr));
-				publishString(msg, "history");
+				publishString(mqtt, AIO_USERNAME, msg, "history");
 
 				deviceActiveFlow[thisDevice] = false;                                           // just a flag to indicate that yes, sure enough, no flow (but note we only do this check once per minute)
 			}
@@ -466,7 +384,7 @@ void doDeviceCalc(uint8_t thisDevice) {
 				char thisStr[80] = "";
 				itoa(countLastFlow[thisDevice], thisStr, 10);
 				strncat(msg, thisStr, (unsigned)strlen(thisStr));
-				publishString(msg, "history");
+				publishString(mqtt, AIO_USERNAME, msg, "history");
 
 				deviceActiveFlow[thisDevice] = true; // when we have less than 2 pulses per minute, we assume there's an active flow
 			}
@@ -573,6 +491,58 @@ void initPinNames() {
 	//if (MAX_DEVICES >= D16) { strcpy(pinName[D16], "D16"); };
 }
 
+
+
+void verifyFingerprint() {
+
+	const char* host = AIO_SERVER;
+
+	Serial.print("Connecting to ");
+	Serial.println(host);
+
+	if (!client.connect(host, AIO_SERVERPORT)) {
+		Serial.println("Connection failed. Halting execution.");
+		while (1);
+	}
+
+	if (client.verify(fingerprint, host)) {
+		Serial.println("Connection secure.");
+	}
+	else {
+		Serial.println("Connection insecure! Halting execution.");
+		while (1);
+	}
+
+}
+
+void mqtt_client_connect(Adafruit_MQTT_Client& thisMQTT) {
+	WiFi.begin(ssid, password);
+
+	while (WiFi.status() != WL_CONNECTED) {
+		delay(500);
+		Serial.print(".");
+	}
+
+	Serial.println("");
+	Serial.println("WiFi connected");
+	Serial.println("IP address: ");
+	Serial.println(WiFi.localIP());
+
+
+
+	const char* host = AIO_SERVER;
+	if (!client.connect(host, AIO_SERVERPORT)) {
+		Serial.println("Client connection failure!");
+	}
+	else {
+		Serial.println("SSL Connection Success!");
+		MQTT_connect(thisMQTT);
+	}
+	verifyFingerprint();
+}
+
+
+
 //********************************************************************************************************************
 //********************************************************************************************************************
 // setup
@@ -604,84 +574,14 @@ void setup() {
 	Serial.print("Connecting to ");
 	Serial.println(ssid);
 
-	WiFi.begin(ssid, password);
-
-	while (WiFi.status() != WL_CONNECTED) {
-		delay(500);
-		Serial.print(".");
-	}
-
-	Serial.println("");
-	Serial.println("WiFi connected");
-	Serial.println("IP address: ");
-	Serial.println(WiFi.localIP());
-
-	const char* host = AIO_SERVER;
-	if (!client.connect(host, AIO_SERVERPORT)) {
-		Serial.println("Client connection failure!");
-	}
-	else {
-		Serial.println("SSL Connection Success!");
-		MQTT_connect();
-	}
-	verifyFingerprint();
+	mqtt_client_connect(mqtt);
 	// interrupts(); // this is implicit; allow interrupts only after setup id complete
-	publishString("Startup!", "history");
-	publishString("Ready!", "history");
+	publishString(mqtt, AIO_USERNAME, "Startup!", "history");
+	publishString(mqtt, AIO_USERNAME, "Ready!", "history");
 
 }
 
-int lastAdafruitMessageMillis = 0;
 
-//********************************************************************************************************************
-// publishValue
-//
-// be sure feed exists! see https://learn.adafruit.com/adafruit-io-basics-feeds/creating-a-feed
-//
-//********************************************************************************************************************
-void publishValue(uint8_t thisDevice, double thisValue, char feedname[] = "flow") {
-	char publishName[128] = AIO_USERNAME;
-
-	strcat(publishName, "/feeds/");
-
-	strncat(publishName, feedname, (unsigned)strlen(feedname));
-
-	strncat(publishName, pinName[thisDevice], (unsigned)strlen(pinName[thisDevice]));
-
-	// Adafruit_MQTT_Publish flowD1 = Adafruit_MQTT_Publish(&mqtt, AIO_USERNAME "/feeds/flowD1");
-
-	Serial.print("Publishing to ");
-	Serial.print(publishName);
-	Serial.print(";  ");
-
-	Adafruit_MQTT_Publish thisPublisher = Adafruit_MQTT_Publish(&mqtt, publishName);
-	MQTT_connect();
-
-	if (!thisPublisher.publish(thisValue)) {
-		Serial.println(F(" Failed"));
-	}
-	else {
-		Serial.println(F(" Success!"));
-	}
-}
-
-
-
-
-////********************************************************************************************************************
-////  publishValue
-////********************************************************************************************************************
-//void publishValue(uint8_t thisDevice, double thisValue) {
-// // the MQTT path here is [name]/feeds/flow[device] e.g. gojimmypi/feeds/flowD1
-// publishValue(thisDevice, thisValue, "flow");
-//}
-
-//********************************************************************************************************************
-//  publishHistoryValue
-//********************************************************************************************************************
-void publishHistoryValue(uint8_t thisDevice, double thisValue) {
-	publishValue(thisDevice, thisValue, "flowHistory");
-}
 
 //********************************************************************************************************************
 //********************************************************************************************************************
@@ -714,7 +614,7 @@ void loop() {
 
 		Serial.println(millis(), DEC);
 		Serial.println(lastAdafruitMessageMillis, DEC);
-		publishString("loop!", "history");
+		publishString(mqtt, AIO_USERNAME, "loop!", "history");
 		Serial.println(millis(), DEC);
 		Serial.println(lastAdafruitMessageMillis, DEC);
 		Serial.println("End loop!");
@@ -724,8 +624,8 @@ void loop() {
 		// connection and automatically reconnect when disconnected).  See the MQTT_connect
 		// function definition further below.
 
-		publishValue(D1, averageCountFlow(D1));
-		publishValue(D5, averageCountFlow(D5));
+		publishValue(mqtt, AIO_USERNAME, pinName[D1], averageCountFlow(D1));
+		publishValue(mqtt, AIO_USERNAME, pinName[D5], averageCountFlow(D5));
 		// MQTT_connect();
 		//if (!flowD1.publish((int)  averageCountFlow(D1))) {
 		// Serial.println(F("Failed"));
