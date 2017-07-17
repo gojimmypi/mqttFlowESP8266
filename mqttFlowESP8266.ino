@@ -1,8 +1,16 @@
- 
-#include <ESP8266WiFi.h>
+#define ENABLE_MQTT="TRUE"
 
-#include <Adafruit_MQTT.h>
-#include <Adafruit_MQTT_Client.h>
+#include <ESP8266WiFi.h>
+#include <ESP8266mDNS.h> #OTA
+#include <WiFiUdp.h>     #OTA
+#include <ArduinoOTA.h>  #OTA
+
+#ifdef ENABLE_MQTT
+	#include <AdafruitIO_Definitions.h>
+	#include <Adafruit_MQTT.h>
+	#include <Adafruit_MQTT_Client.h>
+#endif // ENABLE_MQTT
+
 #include <pins_arduino.h> // be sure to select "NodeMCU Board!" see https://github.com/esp8266/Arduino/tree/master/variants/nodemcu
 
 // https://raw.githubusercontent.com/esp8266/Arduino/master/variants/nodemcu/pins_arduino.h
@@ -12,9 +20,15 @@
 // if you choose not to use such a file, set this to false:
 #define USE_myPrivateSettings true
 
+const char* WIFI_SSID = "testbench";
+const char* WIFI_PWD = "Mug!Cake!SNOOPY!";
+
+
+
+// #define AIO_SSL_FINGERPRINT "26 96 1C 2A 51 07 FD 15 80 96 93 AE F7 32 CE B9 0D 01 55 C4"
 // Note the two possible file name string formats.
 #if USE_myPrivateSettings == true 
-#  include "/workspace/myPrivateSettings.h"
+	#include "c:\workspace\myPrivateSettings.h"
 #else
 // create your own myPrivateSettings.h, or uncomment the following lines:
 const char* WIFI_SSID = "my-wifi-SSID"
@@ -30,6 +44,7 @@ const char* fingerprint = "your adafruit fingerprint string";
 #endif
 
 
+const int ESP_BUILTIN_LED = 2;
 
 //connect a jumper from GPIO 14 to ground to start test
 
@@ -371,7 +386,10 @@ void doDeviceCalc(uint8_t thisDevice) {
 				char thisStr[80] = "";
 				itoa(countLastFlow[thisDevice], thisStr, 10);
 				strncat(msg, thisStr, (unsigned)strlen(thisStr));
+#ifdef ENABLE_MQTT
 				publishString(mqtt, AIO_USERNAME, msg, "history");
+#endif // ENABLE_MQTT
+
 
 				deviceActiveFlow[thisDevice] = false;                                           // just a flag to indicate that yes, sure enough, no flow (but note we only do this check once per minute)
 			}
@@ -384,8 +402,10 @@ void doDeviceCalc(uint8_t thisDevice) {
 				char thisStr[80] = "";
 				itoa(countLastFlow[thisDevice], thisStr, 10);
 				strncat(msg, thisStr, (unsigned)strlen(thisStr));
-				publishString(mqtt, AIO_USERNAME, msg, "history");
 
+#ifdef ENABLE_MQTT
+				publishString(mqtt, AIO_USERNAME, msg, "history");
+#endif // ENABLE_MQTT
 				deviceActiveFlow[thisDevice] = true; // when we have less than 2 pulses per minute, we assume there's an active flow
 			}
 			countThisFlow[thisDevice] = isrCountArray[thisDevice] - countThisFlowRef[thisDevice]; // if there IS flow, the count this flow is the difference from last reference
@@ -492,7 +512,7 @@ void initPinNames() {
 }
 
 
-
+#ifdef ENABLE_MQTT
 void verifyFingerprint() {
 
 	const char* host = AIO_SERVER;
@@ -516,20 +536,6 @@ void verifyFingerprint() {
 }
 
 void mqtt_client_connect(Adafruit_MQTT_Client& thisMQTT) {
-	WiFi.begin(ssid, password);
-
-	while (WiFi.status() != WL_CONNECTED) {
-		delay(500);
-		Serial.print(".");
-	}
-
-	Serial.println("");
-	Serial.println("WiFi connected");
-	Serial.println("IP address: ");
-	Serial.println(WiFi.localIP());
-
-
-
 	const char* host = AIO_SERVER;
 	if (!client.connect(host, AIO_SERVERPORT)) {
 		Serial.println("Client connection failure!");
@@ -540,6 +546,7 @@ void mqtt_client_connect(Adafruit_MQTT_Client& thisMQTT) {
 	}
 	verifyFingerprint();
 }
+#endif // ENABLE_MQTT
 
 
 
@@ -551,9 +558,18 @@ void mqtt_client_connect(Adafruit_MQTT_Client& thisMQTT) {
 void setup() {
 	// noInterrupts(); // this is implicit
 
-	Serial.begin(9600);      // open the serial port at 9600 bps:  
+	Serial.begin(115200);      // open the serial port at 9600 bps:  
 	delay(21);
 	Serial.println("Startup! Version 0.005");
+
+	WiFi.mode(WIFI_STA);
+	WiFi.begin(WIFI_SSID, WIFI_PWD);
+
+	while (WiFi.waitForConnectResult() != WL_CONNECTED) {
+		Serial.println("Connection Failed! Rebooting...");
+		delay(5000);
+		ESP.restart();
+	}
 
 	clearHistory();          // initialize device flow history to all zero values
 	Serial.println("Pre!");
@@ -564,6 +580,41 @@ void setup() {
 	initDevice(D5);
 	initDevice(D1);
 
+
+
+	Serial.println("");
+	Serial.println("WiFi connected");
+	Serial.println("IP address: ");
+	Serial.println(WiFi.localIP());
+
+
+
+
+
+	ArduinoOTA.onStart([]() {
+		Serial.println("Start");
+	});
+	ArduinoOTA.onEnd([]() {
+		Serial.println("\nEnd");
+	});
+	ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+		Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
+	});
+	ArduinoOTA.onError([](ota_error_t error) {
+		Serial.printf("Error[%u]: ", error);
+		if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
+		else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
+		else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
+		else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
+		else if (error == OTA_END_ERROR) Serial.println("End Failed");
+	});
+	ArduinoOTA.begin();
+	Serial.println("Ready");
+	Serial.print("IP address: ");
+	Serial.println(WiFi.localIP());
+	pinMode(ESP_BUILTIN_LED, OUTPUT);
+
+
 	pinMode(NODEMCU_LED, OUTPUT);     // Initialize the LED_BUILTIN pin as an output
 
 	setLED();
@@ -572,13 +623,14 @@ void setup() {
 	Serial.println();
 	Serial.println();
 	Serial.print("Connecting to ");
-	Serial.println(ssid);
+	Serial.println(WIFI_SSID);
 
+#ifdef ENABLE_MQTT
 	mqtt_client_connect(mqtt);
 	// interrupts(); // this is implicit; allow interrupts only after setup id complete
 	publishString(mqtt, AIO_USERNAME, "Startup!", "history");
 	publishString(mqtt, AIO_USERNAME, "Ready!", "history");
-
+#endif // ENABLE_MQTT
 }
 
 
@@ -589,6 +641,8 @@ void setup() {
 //********************************************************************************************************************
 //********************************************************************************************************************
 void loop() {
+	ArduinoOTA.handle();
+
 	if ((millis() - lastMessageMillis) > 5000) {
 		displayMessage(D5);
 		displayMessage(D1);
@@ -609,6 +663,7 @@ void loop() {
 
 
 
+#ifdef ENABLE_MQTT
 	if ((millis() - lastAdafruitMessageMillis) > 5000) {
 		Serial.println("Start loop!");
 
@@ -634,6 +689,7 @@ void loop() {
 		// Serial.println(F("OK!"));
 		//}
 		lastAdafruitMessageMillis = millis();
+#endif // ENABLE_MQTT
 	}
 }
 
