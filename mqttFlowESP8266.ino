@@ -20,8 +20,8 @@
 // if you choose not to use such a file, set this to false:
 #define USE_myPrivateSettings true
 
-const char* WIFI_SSID = "testbench";
-const char* WIFI_PWD = "Mug!Cake!SNOOPY!";
+const char* WIFI_SSID = "SSID";
+const char* WIFI_PWD = "password";
 
 
 
